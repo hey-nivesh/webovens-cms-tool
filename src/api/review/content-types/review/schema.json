@@ -1,0 +1,40 @@
+{
+  "kind": "collectionType",
+  "collectionName": "reviews",
+  "info": {
+    "singularName": "review",
+    "pluralName": "reviews",
+    "displayName": "Review",
+    "description": "Stores AI reviews of repositories"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user"
+    },
+    "repositoryName": {
+      "type": "string",
+      "required": true
+    },
+    "repositoryOwner": {
+      "type": "string",
+      "required": true
+    },
+    "messages": {
+      "type": "json"
+    },
+    "prUrl": {
+      "type": "string"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": ["pending", "completed", "failed"],
+      "default": "pending"
+    }
+  }
+}

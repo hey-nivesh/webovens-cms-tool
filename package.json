@@ -1,0 +1,42 @@
+{
+  "name": "webovens-cms-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Strapi application",
+  "scripts": {
+    "build": "strapi build",
+    "console": "strapi console",
+    "deploy": "strapi deploy",
+    "dev": "strapi develop",
+    "develop": "strapi develop",
+    "start": "strapi start",
+    "strapi": "strapi",
+    "upgrade": "npx @strapi/upgrade latest",
+    "upgrade:dry": "npx @strapi/upgrade latest --dry"
+  },
+  "dependencies": {
+    "@strapi/plugin-cloud": "5.46.1",
+    "@strapi/plugin-users-permissions": "5.46.1",
+    "@strapi/strapi": "5.46.1",
+    "better-sqlite3": "12.8.0",
+    "pg": "^8.11.5",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.0.0",
+    "styled-components": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20.0.0 <=24.x.x",
+    "npm": ">=6.0.0"
+  },
+  "strapi": {
+    "uuid": "e04d3822-253b-4af8-975f-f01742cc5049",
+    "installId": "e2e27bc22f54f7795395cdfa2d9fbdc1417a2091d6628620b444d62acbfe3749"
+  }
+}

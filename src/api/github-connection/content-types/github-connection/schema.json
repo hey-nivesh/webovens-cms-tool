@@ -1,0 +1,37 @@
+{
+  "kind": "collectionType",
+  "collectionName": "github_connections",
+  "info": {
+    "singularName": "github-connection",
+    "pluralName": "github-connections",
+    "displayName": "Github Connection",
+    "description": ""
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "plugin::users-permissions.user"
+    },
+    "accessToken": {
+      "type": "string",
+      "private": true
+    },
+    "username": {
+      "type": "string"
+    },
+    "avatarUrl": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "connectedAt": {
+      "type": "datetime"
+    }
+  }
+}
