@@ -302,16 +302,16 @@ export default factories.createCoreController('api::review.review', ({ strapi })
       const mistralData = (await mistralResponse.json()) as any;
       let rawJson = mistralData.choices[0].message.content.trim();
       
-      if (rawJson.startsWith('```json')) {
-         rawJson = rawJson.replace(/```json\n?/, '').replace(/```$/, '').trim();
-      } else if (rawJson.startsWith('```')) {
-         rawJson = rawJson.replace(/```\n?/, '').replace(/```$/, '').trim();
+      const jsonMatch = rawJson.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (jsonMatch) {
+         rawJson = jsonMatch[0];
       }
 
       let changes = [];
       try {
         changes = JSON.parse(rawJson);
       } catch (e) {
+        console.error('Failed to parse JSON. Raw output:', rawJson);
         return ctx.badRequest('Failed to parse AI generated patch JSON.');
       }
 
