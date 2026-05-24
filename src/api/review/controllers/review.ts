@@ -68,7 +68,22 @@ export default factories.createCoreController('api::review.review', ({ strapi })
       });
 
       try {
-        const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`, {
+        // Get default branch dynamically
+        const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        });
+        
+        if (!repoRes.ok) {
+           throw new Error('Failed to fetch repository info');
+        }
+        
+        const repoInfo = (await repoRes.json()) as any;
+        const defaultBranch = repoInfo.default_branch || 'main';
+
+        const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, {
           headers: {
             Authorization: `Bearer ${connection.accessToken}`,
             Accept: 'application/vnd.github.v3+json',
@@ -76,7 +91,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
         });
 
         if (!treeResponse.ok) {
-           throw new Error('Failed to fetch repository tree');
+           throw new Error(`Failed to fetch repository tree for branch ${defaultBranch}`);
         }
 
         const treeData = (await treeResponse.json()) as any;
