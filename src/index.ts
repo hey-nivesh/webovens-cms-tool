@@ -13,7 +13,8 @@ export default {
       if (publicRole) {
         const publicActions = [
           'plugin::users-permissions.auth.callback',
-          'plugin::users-permissions.auth.register'
+          'plugin::users-permissions.auth.register',
+          'api::github-connection.github-connection.githubAuth',
         ];
         
         for (const action of publicActions) {
