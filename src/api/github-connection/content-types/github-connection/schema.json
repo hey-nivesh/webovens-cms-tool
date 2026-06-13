@@ -32,6 +32,9 @@
     },
     "connectedAt": {
       "type": "datetime"
+    },
+    "profileAnalysis": {
+      "type": "json"
     }
   }
 }

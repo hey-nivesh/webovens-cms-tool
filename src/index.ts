@@ -43,6 +43,7 @@ export default {
           'api::github-connection.repos.listRepos',
           'api::github-connection.repos.getRepoTree',
           'api::github-connection.repos.getFileContent',
+          'api::github-connection.repos.analyzeProfile',
           'api::review.review.analyzeRepo',
           'api::review.review.chat',
           'api::review.review.applyFixes',

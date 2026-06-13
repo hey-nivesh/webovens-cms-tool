@@ -45,5 +45,14 @@ export default {
         middlewares: [],
       },
     },
+    {
+      method: 'GET',
+      path: '/github/profile-analysis',
+      handler: 'repos.analyzeProfile',
+      config: {
+        policies: [],
+        middlewares: [],
+      },
+    },
   ],
 };

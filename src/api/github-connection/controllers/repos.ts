@@ -177,4 +177,156 @@ export default {
       return ctx.badRequest('Internal server error');
     }
   },
+
+  async analyzeProfile(ctx) {
+    try {
+      const user = ctx.state.user;
+      if (!user) {
+        return ctx.unauthorized('You must be logged in');
+      }
+
+      const { force = 'false' } = ctx.request.query;
+
+      // 1. Get the connection
+      const connection = await strapi.db.query('api::github-connection.github-connection').findOne({
+        where: { user: user.id },
+      });
+
+      if (!connection || !connection.accessToken) {
+        return ctx.unauthorized('GitHub account not connected');
+      }
+
+      // 2. Return cached if force is not true
+      if (force !== 'true' && connection.profileAnalysis) {
+        return connection.profileAnalysis;
+      }
+
+      // 3. Fetch GitHub profile data
+      const profileRes = await fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'AntiGravity-AI'
+        },
+      });
+
+      if (!profileRes.ok) {
+        return ctx.badRequest('Failed to fetch GitHub profile');
+      }
+      const profile = await profileRes.json() as any;
+
+      // Fetch user's repos
+      const reposRes = await fetch('https://api.github.com/user/repos?per_page=50&sort=updated', {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'AntiGravity-AI'
+        },
+      });
+
+      let repos = [];
+      if (reposRes.ok) {
+        repos = await reposRes.json() as any[];
+      }
+
+      // 4. Summarize data for the AI
+      const repoDetails = repos.slice(0, 15).map((r: any) => ({
+        name: r.name,
+        description: r.description,
+        language: r.language,
+        stars: r.stargazers_count,
+        forks: r.forks_count,
+        size: r.size,
+      }));
+
+      const profileDataSummary = {
+        login: profile.login,
+        name: profile.name,
+        bio: profile.bio,
+        public_repos: profile.public_repos,
+        followers: profile.followers,
+        repos: repoDetails,
+      };
+
+      // 5. Query Mistral AI via NVIDIA API
+      const systemPrompt = `You are a world-class developer profile analyzer.
+Analyze the provided GitHub user profile and repository data.
+Generate a structured JSON analysis summarizing their profile.
+Return ONLY a valid JSON object matching this schema:
+{
+  "developerPersona": "A creative title describing their developer identity (e.g. 'Systems Architect & Rust Developer', 'Full-Stack Javascript Pioneer', etc.)",
+  "profileSummary": "A concise 2-sentence summary highlighting their main interests, style, and tech stack based on repositories and bio.",
+  "strengths": [
+    "strength 1",
+    "strength 2",
+    "strength 3"
+  ],
+  "topLanguages": [
+    { "name": "LanguageName", "percentage": 70, "color": "bg-blue-500" },
+    { "name": "Language2Name", "percentage": 20, "color": "bg-yellow-500" }
+  ],
+  "recommendations": [
+    "AI-driven suggestion 1",
+    "AI-driven suggestion 2",
+    "AI-driven suggestion 3"
+  ]
+}
+Ensure the output is pure JSON. Do not wrap it in markdown code blocks (\`\`\`).`;
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Profile Data:\n${JSON.stringify(profileDataSummary, null, 2)}` }
+      ];
+
+      const mistralResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer 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'
+        },
+        body: JSON.stringify({
+          model: 'mistralai/mistral-large-3-675b-instruct-2512',
+          messages,
+          max_tokens: 1500,
+          temperature: 0.2,
+        })
+      });
+
+      if (!mistralResponse.ok) {
+        const errorData = (await mistralResponse.json().catch(() => ({}))) as any;
+        throw new Error(`AI API failed: ${errorData.message || 'Unknown error'}`);
+      }
+
+      const responseData = await mistralResponse.json() as any;
+      let aiText = responseData.choices[0].message.content.trim();
+
+      // Clean markdown code blocks if AI wraps it anyway
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        aiText = jsonMatch[0];
+      }
+
+      let analysis;
+      try {
+        analysis = JSON.parse(aiText);
+      } catch (err) {
+        console.error('Failed to parse AI output:', aiText);
+        throw new Error('AI returned invalid JSON');
+      }
+
+      // 6. Save back to connection
+      await strapi.db.query('api::github-connection.github-connection').update({
+        where: { id: connection.id },
+        data: {
+          profileAnalysis: analysis
+        }
+      });
+
+      return analysis;
+    } catch (error: any) {
+      strapi.log.error('analyzeProfile error', error);
+      return ctx.badRequest(error.message || 'Failed to analyze profile');
+    }
+  },
 };
