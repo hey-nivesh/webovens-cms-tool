@@ -146,7 +146,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
             'Authorization': 'Bearer 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'
           },
           body: JSON.stringify({
-            model: 'mistralai/mistral-large-3-675b-instruct-2512',
+            model: 'meta/llama-3.3-70b-instruct',
             messages: apiMessages,
             max_tokens: 2048,
             temperature: 0.15,
@@ -218,7 +218,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
           'Authorization': 'Bearer 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'
         },
         body: JSON.stringify({
-          model: 'mistralai/mistral-large-3-675b-instruct-2512',
+          model: 'meta/llama-3.3-70b-instruct',
           messages: messages,
           max_tokens: 2048,
           temperature: 0.15,
@@ -275,13 +275,40 @@ export default factories.createCoreController('api::review.review', ({ strapi })
       const repo = review.repositoryName;
       console.log(`[applyFixes] Initiating patch generation for ${owner}/${repo}`);
       
-      const patchMessages = [...(review.messages || [])];
-      patchMessages.push({
-        role: 'user', 
-        content: 'Based on our entire conversation above, output ONLY a JSON array of the specific file modifications needed. Do NOT include files that do not need changes. For any file you modify, you MUST output the complete, fully updated file content — do NOT use placeholders or omit any code. IMPORTANT: The "content" field for each file MUST be the raw file text encoded as a Base64 string. This is required to safely embed code in JSON. The JSON must exactly follow this format:\n[{"path": "src/exact/filename.ts", "content": "<base64 encoded file content>"}]\nOutput raw JSON only. No markdown, no code fences, no explanation — only the JSON array.'
-      });
+      // ── SINGLE-CALL PATCH APPROACH ───────────────────────────────────────────
+      // Instead of generating full file rewrites (huge output, rate-limited),
+      // ask the AI for compact surgical find/replace operations.
+      // We then fetch each file from GitHub, apply patches in memory, and commit.
+      // Total: 1 AI call, output fits in ~3k tokens.
+      // ─────────────────────────────────────────────────────────────────────────
+      const patchPrompt = `Based on our entire code review conversation above, output a JSON array of surgical find/replace patches for the files that need fixes.
 
-      const mistralResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+STRICT FORMAT — output ONLY this JSON, no markdown, no explanation:
+[
+  {
+    "file": "relative/path/to/file.py",
+    "patches": [
+      {
+        "find": "exact_original_code_to_replace",
+        "replace": "new_fixed_code"
+      }
+    ]
+  }
+]
+
+Rules:
+- "find" must be the EXACT text currently in the file (copy-paste accuracy — whitespace matters).
+- "replace" is the corrected version of that exact block.
+- Keep patches small and focused — only the lines that actually change.
+- Multiple patches per file are fine.
+- If a file needs no changes, omit it entirely.
+- Output raw JSON only. No markdown fences. No extra text.`;
+
+      const patchMessages = [...(review.messages || [])];
+      patchMessages.push({ role: 'user', content: patchPrompt });
+
+      console.log('[applyFixes] Requesting single-call patch JSON from AI...');
+      const patchResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -289,7 +316,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
           'Authorization': 'Bearer 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'
         },
         body: JSON.stringify({
-          model: 'mistralai/mistral-large-3-675b-instruct-2512',
+          model: 'meta/llama-3.3-70b-instruct',
           messages: patchMessages,
           max_tokens: 4096,
           temperature: 0.1,
@@ -297,108 +324,44 @@ export default factories.createCoreController('api::review.review', ({ strapi })
         })
       });
 
-      console.log(`[applyFixes] NVIDIA API status: ${mistralResponse.status}`);
-      if (!mistralResponse.ok) {
-        const errText = await mistralResponse.text();
-        console.error(`[applyFixes] Mistral API failed. Status: ${mistralResponse.status}, Body: ${errText}`);
-        return ctx.badRequest(`Mistral API failed to generate patch: ${errText}`);
-      }
-      
-      const mistralData = (await mistralResponse.json()) as any;
-      let rawJson = mistralData.choices[0].message.content.trim();
-      console.log('[applyFixes] Raw AI response (first 500 chars):', rawJson.substring(0, 500));
-      
-      // Strip any markdown code fences the model may have added
-      rawJson = rawJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-
-      // Extract the outermost JSON array using bracket counting — more reliable than regex on large payloads
-      let jsonStart = rawJson.indexOf('[');
-      if (jsonStart === -1) {
-        console.error('[applyFixes] No JSON array found in AI response. Raw output:', rawJson);
-        return ctx.badRequest('AI did not return a valid JSON array of changes.');
-      }
-      let depth = 0;
-      let jsonEnd = -1;
-      for (let i = jsonStart; i < rawJson.length; i++) {
-        if (rawJson[i] === '[') depth++;
-        else if (rawJson[i] === ']') {
-          depth--;
-          if (depth === 0) { jsonEnd = i; break; }
-        }
-      }
-      if (jsonEnd === -1) {
-        // Response was truncated — try to recover by closing open brackets
-        console.warn('[applyFixes] JSON array appears truncated, attempting recovery...');
-        rawJson = rawJson.substring(jsonStart).replace(/,\s*$/, '') + ']}]';
-        jsonStart = 0;
-        jsonEnd = rawJson.length - 1;
-      } else {
-        rawJson = rawJson.substring(jsonStart, jsonEnd + 1);
+      console.log(`[applyFixes] Patch API status: ${patchResponse.status}`);
+      if (!patchResponse.ok) {
+        const errText = await patchResponse.text();
+        console.error(`[applyFixes] Patch generation failed (${patchResponse.status}): ${errText}`);
+        return ctx.badRequest(`AI patch generation failed: ${patchResponse.status}`);
       }
 
-      let changes: Array<{ path: string; content: string }> = [];
+      const patchData = (await patchResponse.json()) as any;
+      let rawPatch = patchData.choices[0].message.content.trim();
+      console.log('[applyFixes] Raw patch response (first 300 chars):', rawPatch.substring(0, 300));
+
+      // Strip markdown fences if present
+      rawPatch = rawPatch.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+      // Extract JSON array
+      const arrStart = rawPatch.indexOf('[');
+      const arrEnd = rawPatch.lastIndexOf(']');
+      if (arrStart === -1 || arrEnd === -1) {
+        console.error('[applyFixes] No JSON array found in patch response:', rawPatch);
+        return ctx.badRequest('AI did not return a valid patch array.');
+      }
+      rawPatch = rawPatch.substring(arrStart, arrEnd + 1);
+
+      let filePatchList: Array<{ file: string; patches: Array<{ find: string; replace: string }> }> = [];
       try {
-        changes = JSON.parse(rawJson);
+        filePatchList = JSON.parse(rawPatch);
       } catch (e) {
-        console.error('[applyFixes] Failed to parse extracted JSON. Attempting aggressive sanitization...');
-        // Last-resort: try to re-parse after replacing unescaped control chars
-        try {
-          const sanitized = rawJson.replace(/[\x00-\x1F\x7F]/g, (c) => {
-            if (c === '\n') return '\\n';
-            if (c === '\r') return '\\r';
-            if (c === '\t') return '\\t';
-            return '';
-          });
-          changes = JSON.parse(sanitized);
-        } catch (e2) {
-          console.error('[applyFixes] Final parse attempt failed. Raw JSON snippet:', rawJson.substring(0, 1000));
-          return ctx.badRequest('Failed to parse AI generated patch JSON. The AI response may be malformed.');
-        }
+        console.error('[applyFixes] Failed to parse patch JSON:', rawPatch.substring(0, 500));
+        return ctx.badRequest('Failed to parse AI patch JSON.');
       }
 
-      if (!Array.isArray(changes) || changes.length === 0) {
-        return ctx.badRequest('No valid changes found in AI response.');
+      if (!Array.isArray(filePatchList) || filePatchList.length === 0) {
+        return ctx.send({ success: true, message: 'AI found no changes required.' });
       }
 
-      // Validate and decode base64 content for each change
-      const decodedChanges: Array<{ path: string; content: string }> = [];
-      for (const change of changes) {
-        if (!change.path || typeof change.path !== 'string') {
-          console.warn('[applyFixes] Skipping entry with missing path:', change);
-          continue;
-        }
-        if (!change.content || typeof change.content !== 'string') {
-          console.warn('[applyFixes] Skipping entry with missing content for path:', change.path);
-          continue;
-        }
-        // The AI was instructed to base64-encode content; try to decode it.
-        // If it looks like plain text (e.g. AI ignored instruction), keep it as-is.
-        let decodedContent = change.content;
-        const base64Regex = /^[A-Za-z0-9+/=\s]+$/;
-        if (base64Regex.test(change.content.trim())) {
-          try {
-            const buf = Buffer.from(change.content.trim(), 'base64');
-            const decoded = buf.toString('utf8');
-            // Sanity check: decoded text should be readable code, not garbage
-            if (decoded.length > 0 && decoded.length < change.content.length * 2) {
-              decodedContent = decoded;
-              console.log(`[applyFixes] Base64 decoded content for ${change.path} (${buf.length} bytes)`);
-            }
-          } catch (_) {
-            // Not valid base64, use content as-is
-          }
-        }
-        decodedChanges.push({ path: change.path, content: decodedContent });
-      }
+      console.log(`[applyFixes] Got patches for ${filePatchList.length} file(s):`, filePatchList.map(f => f.file));
 
-      if (decodedChanges.length === 0) {
-        return ctx.badRequest('No valid file changes with content found in AI response.');
-      }
-
-      const changes_to_apply = decodedChanges;
-
-      console.log(`[applyFixes] Found ${changes_to_apply.length} decoded changes. Communicating with GitHub...`);
-
+      // ── Fetch each file from GitHub, apply patches, build changes_to_apply ───
       const githubHeaders = {
         Authorization: `Bearer ${connection.accessToken}`,
         Accept: 'application/vnd.github.v3+json',
@@ -406,7 +369,57 @@ export default factories.createCoreController('api::review.review', ({ strapi })
         'User-Agent': 'AntiGravity-AI'
       };
 
+      const changes_to_apply: Array<{ path: string; content: string }> = [];
+
+      for (const filePatch of filePatchList) {
+        const filePath = filePatch.file;
+        if (!filePath || !Array.isArray(filePatch.patches) || filePatch.patches.length === 0) continue;
+
+        // Fetch current file content from GitHub
+        const ghFileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
+          headers: githubHeaders
+        });
+
+        if (!ghFileRes.ok) {
+          console.warn(`[applyFixes] Could not fetch ${filePath} from GitHub (${ghFileRes.status}) — skipping`);
+          continue;
+        }
+
+        const ghFileData = (await ghFileRes.json()) as any;
+        if (!ghFileData.content || ghFileData.encoding !== 'base64') {
+          console.warn(`[applyFixes] ${filePath} has no base64 content — skipping`);
+          continue;
+        }
+
+        let fileContent = Buffer.from(ghFileData.content.replace(/\s+/g, ''), 'base64').toString('utf8');
+        let patchApplied = 0;
+
+        for (const patch of filePatch.patches) {
+          if (!patch.find || patch.replace === undefined) continue;
+          if (fileContent.includes(patch.find)) {
+            fileContent = fileContent.replace(patch.find, patch.replace);
+            patchApplied++;
+          } else {
+            console.warn(`[applyFixes] Patch find-text not found in ${filePath}:`, patch.find.substring(0, 80));
+          }
+        }
+
+        if (patchApplied > 0) {
+          console.log(`[applyFixes] ✓ Applied ${patchApplied}/${filePatch.patches.length} patch(es) to ${filePath}`);
+          changes_to_apply.push({ path: filePath, content: fileContent });
+        } else {
+          console.warn(`[applyFixes] ✗ No patches matched in ${filePath} — skipping`);
+        }
+      }
+
+      if (changes_to_apply.length === 0) {
+        return ctx.badRequest('No patch find-text matched in any file. The AI patches may be stale or incorrect.');
+      }
+
+      console.log(`[applyFixes] Ready to commit ${changes_to_apply.length} patched file(s) to GitHub.`);
+
       const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers: githubHeaders });
+
       if (!repoRes.ok) {
         const errText = await repoRes.text();
         console.error(`[applyFixes] Failed to fetch repo info. Status: ${repoRes.status}, Body: ${errText}`);

@@ -502,6 +502,7 @@ export interface ApiGithubConnectionGithubConnection
       'api::github-connection.github-connection'
     > &
       Schema.Attribute.Private;
+    profileAnalysis: Schema.Attribute.JSON;
     publishedAt: Schema.Attribute.DateTime;
     scope: Schema.Attribute.String;
     updatedAt: Schema.Attribute.DateTime;
