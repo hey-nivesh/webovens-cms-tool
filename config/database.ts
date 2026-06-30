@@ -1,5 +1,13 @@
 import path from 'path';
+import dns from 'dns';
 import type { Core } from '@strapi/strapi';
+
+// Force Node.js to prefer IPv4 over IPv6 when resolving hostnames.
+// Render.com and many cloud platforms do not support IPv6 routing by default,
+// which causes connection attempts to Supabase IPv6 addresses to fail with ENETUNREACH.
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database => {
   const client = env('DATABASE_CLIENT', 'sqlite');
