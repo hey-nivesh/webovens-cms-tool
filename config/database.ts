@@ -40,6 +40,9 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database 
         ? {
             connectionString: env('DATABASE_URL'),
             ssl: { rejectUnauthorized: false },
+            lookup: (hostname: string, options: any, callback: any) => {
+              dns.lookup(hostname, { family: 4 }, callback);
+            },
           }
         // ── Fallback: individual params ─────────────────────────────────────
         : {
@@ -52,6 +55,9 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database 
               ? { rejectUnauthorized: false }
               : false,
             schema: env('DATABASE_SCHEMA', 'public'),
+            lookup: (hostname: string, options: any, callback: any) => {
+              dns.lookup(hostname, { family: 4 }, callback);
+            },
           },
       // Keep pool small — Supabase free tier allows ~15 concurrent connections
       pool: { min: env.int('DATABASE_POOL_MIN', 2), max: env.int('DATABASE_POOL_MAX', 5) },
