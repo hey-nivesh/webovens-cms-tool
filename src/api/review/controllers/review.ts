@@ -143,7 +143,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': 'Bearer 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'
+            'Authorization': 'Bearer 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'
           },
           body: JSON.stringify({
             model: 'meta/llama-3.3-70b-instruct',
@@ -215,7 +215,7 @@ export default factories.createCoreController('api::review.review', ({ strapi })
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': 'Bearer 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'
+          'Authorization': 'Bearer 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'
         },
         body: JSON.stringify({
           model: 'meta/llama-3.3-70b-instruct',
